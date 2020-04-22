@@ -106,3 +106,10 @@ confusionMatrix(predictionRF, testing_nsv$classe)$overall["Accuracy"]
 
 We can see that Random Forest is the algorithm with the highest prediction accuracy on this dataset,with a test set accuracy percentage of over 99%. This is the algorithm we will use on the validation set.
 
+## Predicting on the validation set
+
+```{r}
+TwentyTestCases <- predict(modelRF, newdata = val_nsv)
+TwentyTestCases
+```
+
