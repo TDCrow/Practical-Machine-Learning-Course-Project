@@ -1,0 +1,108 @@
+---
+title: "Predicting Exercise Type"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+People regularly quantify how much of a particular activity they do, but rarely how well they do it. This project aims to predict the five different (correct and incorrect) manners in which participants undertook barbell lifts. Using data from acceleromters attached to the body and weights on 6 study participants, we run three different ML algorithms, using five-fold cross validation. We find the random forest algorithm has the best accuracy rate on out-of-sample data, and so we use the model based on this algorithm to predict 20 different test cases.
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(ggplot2); library(caret); library(skimr); library(dplyr); library(parallel); library(doParallel)
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+```
+
+## Data
+
+The data comes from accelerometers on the belt, forearm, arm, and dumbell. More information is avaiable from the website: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. The training set (which is then split into training and test set) is found at https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv, while the test set (named here as the validation set) is found at  https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv.
+```{r importData}
+main_data <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+validation <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+### Data Splitting
+
+We split the training data into a training and test set, with 70% of the data in the training set, and 30% of the data in the testing set
+``` {r}
+inTrain <- createDataPartition(y =  main_data$classe, p = 0.7, list = FALSE)
+training <- main_data[inTrain, ]
+testing <- main_data[-inTrain, ]
+```
+
+### Data Exploration
+
+We undertake some preliminary exploration of the data. We look at the dimensions of the training set, as well as a table of the percetange of NA values in each predictor, and a plot of our dependent variable, Classe.
+```{r dataExploration}
+dim(training)
+table(colMeans(is.na(training)))
+plot(training$classe)
+```
+
+## PreProcessing
+### Reducing the number of Predictors
+As per our exploratory analysis above, there are several predictors which have almost no values. We remove these values by removing any predictor where over 80% of their values are NA. We also remove the first 7 predictors, which are not relevant to the prediction problem
+```{r}
+NA_vars <- colMeans((is.na(training))) < 0.8  
+training_noNA <- training[,NA_vars] %>% select(-c(1:7))
+testing_noNA <- testing[,NA_vars] %>% select(-c(1:7))
+val_noNA <- validation[, NA_vars] %>% select(-c(1:7))
+```
+
+This reduces the number of predictors from 160 to 86. We further reduce the number of predictors by removing those predictors which have near zero variance.
+
+```{r zero_features_data}
+nsv <- nearZeroVar(training_noNA, saveMetrics =  FALSE)
+training_nsv <- training_noNA[,-nsv]
+testing_nsv <- testing_noNA[,-nsv]
+val_nsv <- val_noNA[,-nsv]
+```
+
+We have reduced the number of predictors to 53.
+
+### Training Options - cross validation
+
+We will use 5-fold cross validation for all of our different prediction algorithms.
+```{r}
+fitControl <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+```
+
+## Models
+
+We generate machine learning models on the training data using three different algorithms. These are decision trees, support vector machines, and random forest.
+```{r}
+modelTree <- train(classe ~ ., data = training_nsv,
+                method = "rpart",
+                trControl = fitControl)
+modelSVM <- train(classe ~ ., data = training_nsv,
+                method = "svmLinear",
+                trControl = fitControl)
+modelRF <- train(classe ~ ., data = training_nsv,
+                method = "rf",
+                trControl = fitControl)
+stopCluster(cluster)
+```
+
+
+## Expected out of sample error
+
+Having generated our models using the training data, we predict on the test data.
+```{r}
+predictionTree <- predict(modelTree, newdata = testing_nsv)
+predictionSVM <- predict(modelSVM, newdata = testing_nsv)
+predictionRF <- predict(modelRF, newdata = testing_nsv)
+```
+
+We can therefore compare accuracy rates for the different algorithms.
+```{r}
+confusionMatrix(predictionTree, testing_nsv$classe)$overall["Accuracy"]
+confusionMatrix(predictionSVM, testing_nsv$classe)$overall["Accuracy"]
+confusionMatrix(predictionRF, testing_nsv$classe)$overall["Accuracy"]
+```
+
+We can see that Random Forest is the algorithm with the highest prediction accuracy on this dataset,with a test set accuracy percentage of over 99%. This is the algorithm we will use on the validation set.
+
